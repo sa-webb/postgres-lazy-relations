@@ -1,21 +1,42 @@
 import "reflect-metadata";
-import {createConnection} from "typeorm";
-import {User} from "./entity/User";
+import { ApolloServer } from "apollo-server";
+import { Container } from "typedi";
+import * as TypeORM from "typeorm";
+import * as TypeGraphQL from "type-graphql";
 
-createConnection().then(async connection => {
+import { RecipeResolver } from "./resolvers/recipe-resolver";
+import { seedDatabase } from "./helpers";
+import { Context } from "./resolvers/types/context";
 
-    console.log("Inserting a new user into the database...");
-    const user = new User();
-    user.firstName = "Timber";
-    user.lastName = "Saw";
-    user.age = 25;
-    await connection.manager.save(user);
-    console.log("Saved a new user with id: " + user.id);
+// register 3rd party IOC container
+TypeORM.useContainer(Container);
 
-    console.log("Loading users from the database...");
-    const users = await connection.manager.find(User);
-    console.log("Loaded users: ", users);
+async function bootstrap() {
+  try {
+    // create TypeORM connection
+    await TypeORM.createConnection();
 
-    console.log("Here you can setup and run express/koa/any other framework.");
+    // seed database with some data
+    const { defaultUser } = await seedDatabase();
 
-}).catch(error => console.log(error));
+    // build TypeGraphQL executable schema
+    const schema = await TypeGraphQL.buildSchema({
+      resolvers: [RecipeResolver],
+      container: Container,
+    });
+
+    // create mocked context
+    const context: Context = { user: defaultUser };
+
+    // Create GraphQL server
+    const server = new ApolloServer({ schema, context });
+
+    // Start the server
+    const { url } = await server.listen(4000);
+    console.log(`Server is running, GraphQL Playground available at ${url}`);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+bootstrap();
